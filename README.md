@@ -4,7 +4,8 @@
 
 一个 Tampermonkey / ScriptCat 用户脚本，为 [OpenClaw](https://github.com/openclaw/openclaw) Web UI 自动渲染 LaTeX 数学公式。
 
-> 市面上没有现成方案。从零自研，历经 18 个已知问题迭代修复，现已在个人环境中稳定运行。
+> OpenClaw Web UI 原生不支持 LaTeX 数学公式渲染（见 [issue #42840](https://github.com/openclaw/openclaw/issues/42840)），
+> 本脚本尝试通过用户脚本的方式填补这个空缺。
 
 ## 功能
 
