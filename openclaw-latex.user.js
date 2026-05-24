@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-  // @version      2.15.3
+  // @version      2.16.0
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -106,7 +106,7 @@
 
   function restoreDelimiters(root){
     if(!root.querySelectorAll)return;
-    var LATEX_CMD=/\\(?:iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
+    var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
     var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{/;
     // Process p, td, li elements (not just p)
     var els=root.querySelectorAll('p,td,li,h1,h2,h3,h4,h5,h6');
@@ -278,7 +278,12 @@
         return t.replace(p,function(b){
           // 在环境块内，将反斜杠+空白替换为双反斜杠+空白
           // 排除 \begin 和 \end（它们的后面是 {，不是空白）
-          return b.replace(/^\\([ \t\n\r])/, '\\\\$1').replace(/([^\\])\\([ \t\n\r])/g, '$1\\\\$2');
+          b=b.replace(/^\\([ \t\n\r])/, '\\\\$1').replace(/([^\\])\\([ \t\n\r])/g, '$1\\\\$2');
+          // 在环境块内，恢复 \\[length] 间距命令（Markdown 将 \\[2mm] 吃为 \[2mm]）
+          // \[ 在 aligned 等环境内是非法的（它是 display math 分隔符），这里恢复为 \\[2mm] 换行+间距
+          // 匹配模式：行首或非反斜杠后跟 \[加可选长度参数]，如 \[2mm]、\[4pt]、\[]
+          b=b.replace(/(^|[^\\])\\\[([\d]*(?:mm|pt|em|ex|cm|in)?)/g, '$1\\\\[$2');
+          return b;
         });
       }})}catch(err){}
     }
@@ -308,7 +313,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.15.3';
+    var CURRENT_VERSION='2.16.0';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -341,7 +346,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.15.3</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.16.0</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -416,6 +421,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.15.3');
+  log('2.16.0');
   start();
 })();
