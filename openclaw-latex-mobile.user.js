@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器（移动版）
 // @namespace    https://github.com/openclaw-latex
-// @version      2.16.2-m
+// @version      2.16.3-m
 // @description  OpenClaw LaTeX 渲染（移动端兼容版，使用 localStorage 替代 GM_* API，避免沙箱激活）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -286,6 +286,7 @@
         return t.replace(p,function(b){
           b=b.replace(/^\\([ \t\n\r])/, '\\\\$1').replace(/([^\\])\\([ \t\n\r])/g, '$1\\\\$2');
           b=b.replace(/(^|[^\\])\\\[([\d]*(?:mm|pt|em|ex|cm|in)?)/g, '$1\\\\[$2');
+          b=b.replace(/([^\\])\\(\d)/g, '$1\\\\$2');
           return b;
         });
       }})}catch(err){}

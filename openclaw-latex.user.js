@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-  // @version      2.16.2
+  // @version      2.16.3
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -296,6 +296,7 @@
           // \[ 在 aligned 等环境内是非法的（它是 display math 分隔符），这里恢复为 \\[2mm] 换行+间距
           // 匹配模式：行首或非反斜杠后跟 \[加可选长度参数]，如 \[2mm]、\[4pt]、\[]
           b=b.replace(/(^|[^\\])\\\[([\d]*(?:mm|pt|em|ex|cm|in)?)/g, '$1\\\\[$2');
+          b=b.replace(/([^\\])\\(\d)/g, '$1\\\\$2');
           return b;
         });
       }})}catch(err){}
