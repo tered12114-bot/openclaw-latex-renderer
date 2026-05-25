@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器（移动版）
 // @namespace    https://github.com/openclaw-latex
-// @version      2.16.8-m
+// @version      2.16.9-m
 // @description  OpenClaw LaTeX 渲染（移动端兼容版，使用 localStorage 替代 GM_* API，避免沙箱激活）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -108,7 +108,7 @@
     var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|pi|phi|psi|chi|rho|tau|xi|eta|zeta|kappa|nu|varphi|vartheta|varpi|varrho|varsigma|varepsilon|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
     var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{/;
     // Process p, td, li elements (not just p)
-    var els=root.querySelectorAll('p,td,li,h1,h2,h3,h4,h5,h6');
+    var els=root.querySelectorAll('p,td,li,th,h1,h2,h3,h4,h5,h6');
     for(var i=0;i<els.length;i++){
       var el=els[i],h=el.innerHTML;
       // 修复 Markdown 将 LaTeX 下标 _{...} 转为 <em> 标签的问题
@@ -377,6 +377,19 @@
       }
       if(!mdTable)continue;
       var mdDataRows=mdTable.filter(function(r){return!isSep.test(r)});
+      // Fix header row <th> — 问题24-round5
+      if(mdDataRows.length>0&&headerRow){
+        var mdHC=parseMdCells(mdDataRows[0]);
+        var domTC=headerRow.querySelectorAll('th');
+        for(var hc=0;hc<domTC.length&&hc+1<mdHC.length;hc++){
+          var mdHCon=mdHC[hc+1].trim();
+          var mdHT=mdHCon.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/\\\(/g,'(').replace(/\\\)/g,')').trim();
+          var domHT=domTC[hc].textContent.trim();
+          var mdHBSP=/\\[()]/.test(mdHCon);
+          var domMBSP=domTC[hc].innerHTML.indexOf('\\(')===-1&&domTC[hc].innerHTML.indexOf('\\)')===-1;
+          if(mdHT!==domHT||(mdHBSP&&domMBSP)){domTC[hc].innerHTML=mdCellToHtml(mdHCon);}
+        }
+      }
       for(var mi=1;mi<mdDataRows.length&&mi-1<rows.length;mi++){
         var mdCells=parseMdCells(mdDataRows[mi]);
         var domCells=rows[mi-1].querySelectorAll('td');
@@ -459,7 +472,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.8-m';
+    var CURRENT_VERSION='2.16.9-m';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-  // @version      2.16.8
+// @version      2.16.9
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -109,7 +109,7 @@
     var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|pi|phi|psi|chi|rho|tau|xi|eta|zeta|kappa|nu|varphi|vartheta|varpi|varrho|varsigma|varepsilon|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
     var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{/;
     // Process p, td, li elements (not just p)
-    var els=root.querySelectorAll('p,td,li,h1,h2,h3,h4,h5,h6');
+    var els=root.querySelectorAll('p,td,li,th,h1,h2,h3,h4,h5,h6');
     for(var i=0;i<els.length;i++){
       var el=els[i],h=el.innerHTML;
       // 修复 Markdown 将 LaTeX 下标 _{...} 转为 <em> 标签的问题
@@ -387,6 +387,24 @@
       if(!mdTable)continue;
       var mdDataRows=mdTable.filter(function(r){return!isSeparator.test(r)});
       // mdDataRows[0] is header, body rows start at [1]
+      // Fix header row <th> — 问题24-round5: \(...\) in <th> was not processed
+      if(mdDataRows.length>0&&headerRow){
+        var mdHeaderCells=parseMdCells(mdDataRows[0]);
+        var domThCells=headerRow.querySelectorAll('th');
+        for(var hc=0;hc<domThCells.length&&hc+1<mdHeaderCells.length;hc++){
+          var mdHContent=mdHeaderCells[hc+1].trim();
+          var mdHText=mdHContent.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/\\\(/g,'(').replace(/\\\)/g,')').trim();
+          var domHText=domThCells[hc].textContent.trim();
+          var mdHHasBackslashParen=/\\[()]/.test(mdHContent);
+          var domHMissingBackslashParen=domThCells[hc].innerHTML.indexOf('\\(')===-1&&domThCells[hc].innerHTML.indexOf('\\)')===-1;
+          var headerBackslashParenBroken=mdHHasBackslashParen&&domHMissingBackslashParen;
+          if(mdHText!==domHText||headerBackslashParenBroken){
+            var newHHtml=mdCellToHtml(mdHContent);
+            domThCells[hc].innerHTML=newHHtml;
+          }
+        }
+      }
+      // Fix body rows <td>
       for(var mi=1;mi<mdDataRows.length&&mi-1<rows.length;mi++){
         var mdCells=parseMdCells(mdDataRows[mi]);
         var domCells=rows[mi-1].querySelectorAll('td');
@@ -472,7 +490,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.8';
+    var CURRENT_VERSION='2.16.9';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -505,7 +523,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.16.8</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.16.9</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -580,6 +598,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.16.8');
+  log('2.16.9');
   start();
 })();

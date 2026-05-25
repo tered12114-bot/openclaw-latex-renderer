@@ -417,6 +417,15 @@
   - **根因**：Markdown 吃掉 `\(` 和 `\)` 的 `\`，但 `fixTablePipeTruncation` 的 textContent 比较 — MD 解析的文本（去掉 `\(` 的 `\` 后）与 DOM textContent（本身就没有 `\`）相同，无法检测到截断
   - **修复**：新增 `backslashParenBroken` 检测，修改条件为 `if(mdText!==domText||backslashParenBroken)`
   - **验证**：`(\vec{a}\cdot\vec{b})` 渲染成功 ✓、`(\vec{a}\times\vec{b})` 渲染成功 ✓、`|\vec{a}|` 绝对值正常 ✓、表格中正常 `\(...\)` 无回归 ✓
+- **v2.16.9 修复**（round5）：`restoreDelimiters` 和 `fixTablePipeTruncation` 不处理 `<th>` 导致表头公式不渲染
+  - **问题**：对比总结表格表头中的 `(\vec{a}\cdot\vec{b})` 和 `(\vec{a}\times\vec{b})` 显示为灰色原始文本
+  - **根因**：两处遗漏：
+    1. `restoreDelimiters` 选择器 `'p,td,li,h1,h2,h3,h4,h5,h6'` 不含 `th`，表头 `<th>` 中的裸括号 `(...)` 无法被 `restoreInlineMath` 恢复为 `\(...\)`
+    2. `fixTablePipeTruncation` 只处理 `<tbody>` 的 `<td>`，不处理 `<thead>` 的 `<th>`
+  - **修复**：
+    1. `restoreDelimiters` 选择器加入 `th`
+    2. `fixTablePipeTruncation` 新增 header row `<th>` 处理逻辑（与 body `<td>` 逻辑对称）
+  - **验证**：表头 `\(\vec{a}\cdot\vec{b}\)` 渲染成功 ✓、表头 `\(\vec{a}\times\vec{b}\)` 渲染成功 ✓、表体公式无回归 ✓
 
 ### 失败的尝试（已排除）
 - ❌ `mathml.remove()` → 矩阵退化为单行
