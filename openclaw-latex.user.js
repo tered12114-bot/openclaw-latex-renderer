@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-  // @version      2.16.1
+  // @version      2.16.2
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -207,7 +207,7 @@
       // Only apply inline math restoration to non-display-math elements
       // (display math \[...\] already has its own delimiters;
       //  restoreInlineMath would incorrectly convert (x^2) to \(x^2\) inside it)
-      var isDisplayMath=nh.indexOf('\\[')===0||nh.indexOf('$$')===0;
+      var isDisplayMath=nh.indexOf('\\[')!==-1||nh.indexOf('$$')!==-1;
       if(!isDisplayMath&&nh.indexOf('(')!==-1){
         nh=restoreInlineMath(nh,MATH_RE);
       }
@@ -326,7 +326,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.1';
+    var CURRENT_VERSION='2.16.2';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -359,7 +359,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.16.1</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.16.2</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -434,6 +434,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.16.1');
+  log('2.16.2');
   start();
 })();
