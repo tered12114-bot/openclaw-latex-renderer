@@ -106,7 +106,7 @@
 
   function restoreDelimiters(root){
     if(!root.querySelectorAll)return;
-    var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
+    var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|pi|phi|psi|chi|rho|tau|xi|eta|zeta|kappa|nu|varphi|vartheta|varpi|varrho|varsigma|varepsilon|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
     var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{/;
     // Process p, td, li elements (not just p)
     var els=root.querySelectorAll('p,td,li,h1,h2,h3,h4,h5,h6');
