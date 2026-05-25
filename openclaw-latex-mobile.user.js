@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器（移动版）
 // @namespace    https://github.com/openclaw-latex
-// @version      2.16.3-m
+// @version      2.16.7-m
 // @description  OpenClaw LaTeX 渲染（移动端兼容版，使用 localStorage 替代 GM_* API，避免沙箱激活）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -210,6 +210,13 @@
       if(!isDisplayMath&&nh.indexOf('(')!==-1){
         nh=restoreInlineMath(nh,MATH_RE);
       }
+      // Fix <br> and <em> inside \(...\) — 问题22/23: Markdown在\dfrac内插<br>，_{...}被转<em>
+      if(nh.indexOf('\\(')!==-1){
+        nh=nh.replace(/\\\(([\s\S]*?)\\\)/g,function(m,inner){
+          var fixed=inner.replace(/<br>/g,'').replace(/<em>/g,'_').replace(/<\/em>/g,'_');
+          return fixed!==inner?'\\('+fixed+'\\)':m;
+        });
+      }
       // Restore \; (thin space) from bare ; eaten by Markdown
       // Patterns: ,; → ,\;  and  ;\cmd → \;\cmd
       nh=nh.replace(/,;/g,',\\;').replace(/;\\([a-zA-Z])/g,'\\;\\$1').replace(/(\\[a-zA-Z]+);(\s)/g,'$1\\;$2');
@@ -225,6 +232,12 @@
       if(c==='<')inTag=true;
       else if(c==='>')inTag=false;
       else if(!inTag){
+        // 跳过 \( 和 \) — 已有LaTeX分隔符不应被二次包装
+        // 奇偶反斜杠计数：奇数个\前的(或)是LaTeX分隔符
+        var bsCount=0;
+        for(var j=i-1;j>=0&&html[j]==='\\';j--)bsCount++;
+        if(c==='('&&bsCount%2===1)continue;
+        if(c===')'&&bsCount%2===1)continue;
         if(c==='(')parens.push({t:1,p:i});
         else if(c===')')parens.push({t:0,p:i});
       }
@@ -268,6 +281,123 @@
     return r;
   }
 
+  function fixTablePipeTruncation(chatGroup){
+    var app=document.querySelector('openclaw-app');
+    if(!app||!app.chatMessages)return;
+    var tables=chatGroup.querySelectorAll('table');
+    if(tables.length===0)return;
+    var allMdTables=null;
+    function getAllMdTables(){
+      if(allMdTables)return allMdTables;
+      allMdTables=[];
+      var msgs=app.chatMessages;
+      for(var m=0;m<msgs.length;m++){
+        var msg=msgs[m];
+        if(msg.role!=='assistant'||!Array.isArray(msg.content))continue;
+        for(var c=0;c<msg.content.length;c++){
+          if(msg.content[c].type!=='text')continue;
+          var lines=msg.content[c].text.split('\n');
+          var inTable=false;var tableLines=[];
+          for(var l=0;l<lines.length;l++){
+            if(lines[l].match(/^\|/)){
+              if(!inTable){inTable=true;tableLines=[];}
+              tableLines.push(lines[l]);
+            }else if(inTable){
+              allMdTables.push(tableLines);
+              inTable=false;tableLines=[];
+            }
+          }
+          if(inTable)allMdTables.push(tableLines);
+        }
+      }
+      return allMdTables;
+    }
+    function parseMdCells(line){
+      var cells=[];var buf='';var inInline=false;var inDisplay=false;var braceDepth=0;
+      for(var i=0;i<line.length;i++){
+        var ch=line[i];
+        if(!inDisplay&&ch==='\\'&&i+1<line.length&&line[i+1]==='('){inInline=true;buf+=ch;continue;}
+        if(!inDisplay&&inInline&&ch==='\\'&&i+1<line.length&&line[i+1]===')'){buf+=ch;inInline=false;continue;}
+        if(!inInline&&ch==='\\'&&i+1<line.length&&line[i+1]==='['){inDisplay=true;buf+=ch;continue;}
+        if(!inInline&&inDisplay&&ch==='\\'&&i+1<line.length&&line[i+1]===']'){buf+=ch;inDisplay=false;continue;}
+        if(ch==='{')braceDepth++;
+        if(ch==='}')braceDepth--;
+        if(ch==='|'&&!inInline&&!inDisplay&&braceDepth<=0){cells.push(buf);buf='';continue;}
+        buf+=ch;
+      }
+      cells.push(buf);
+      return cells;
+    }
+    function mdCellToHtml(md){
+      var texParts=[];var texIdx=0;
+      md=md.replace(/\\?\(([\s\S]*?)\\?\)/g,function(m){
+        var key='\x00TEX'+texIdx+'\x00';texParts.push({key:key,orig:m});texIdx++;return key;
+      });
+      md=md.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+      md=md.replace(/\*([^*]+)\*/g,'<em>$1</em>');
+      md=md.replace(/`([^`]+)`/g,'<code>$1</code>');
+      for(var t=0;t<texParts.length;t++){md=md.replace(texParts[t].key,texParts[t].orig);}
+      return md;
+    }
+    var isSep=/^\|[\s\-:|]+\|$/;
+    for(var ti=0;ti<tables.length;ti++){
+      var table=tables[ti];
+      var thead=table.querySelector('thead');
+      var headerRow=thead?thead.querySelector('tr'):null;
+      var expectedCols=headerRow?headerRow.querySelectorAll('th').length:0;
+      if(expectedCols===0)continue;
+      var tbody=table.querySelector('tbody');
+      if(!tbody)continue;
+      var rows=tbody.querySelectorAll('tr');
+      var domFps=[];
+      for(var ri=0;ri<rows.length;ri++){
+        var ft=rows[ri].querySelector('td');
+        domFps.push(ft?ft.textContent.trim():'');
+      }
+      var mdTbls=getAllMdTables();
+      var mdTable=null;
+      for(var mt=0;mt<mdTbls.length;mt++){
+        var mRows=mdTbls[mt];
+        var dRows=mRows.filter(function(r){return!isSep.test(r)});
+        if(dRows.length<1)continue;
+        var hCells=parseMdCells(dRows[0]);
+        var mdColCount=hCells.length-2;
+        if(mdColCount!==expectedCols)continue;
+        for(var dr=1;dr<dRows.length;dr++){
+          var drCells=parseMdCells(dRows[dr]);
+          if(drCells.length>1){
+            var drFc=drCells[1].trim().replace(/\*\*/g,'');
+            for(var fi=0;fi<domFps.length;fi++){
+              if(domFps[fi]===drFc){mdTable=mRows;break;}
+            }
+          }
+          if(mdTable)break;
+        }
+        if(mdTable)break;
+      }
+      if(!mdTable)continue;
+      var mdDataRows=mdTable.filter(function(r){return!isSep.test(r)});
+      for(var mi=1;mi<mdDataRows.length&&mi-1<rows.length;mi++){
+        var mdCells=parseMdCells(mdDataRows[mi]);
+        var domCells=rows[mi-1].querySelectorAll('td');
+        // Compare MD cell content with DOM cell content using textContent
+        // MD source is ground truth — if text differs, the DOM cell was truncated by | in math
+        for(var dc=0;dc<domCells.length&&dc+1<mdCells.length;dc++){
+          var mdContent=mdCells[dc+1].trim();
+          // Strip Markdown formatting and \(\) delimiters for text comparison
+          // (Markdown renderer strips \ from \( and \), so DOM textContent has () not \(\))
+          var mdText=mdContent.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/\\\(/g,'(').replace(/\\\)/g,')').trim();
+          var domText=domCells[dc].textContent.trim();
+          if(mdText!==domText){
+            var newHtml=mdCellToHtml(mdContent);
+            domCells[dc].innerHTML=newHtml;
+          }
+        }
+      }
+    }
+  }
+  // hasTruncatedMath removed in v2.16.6 — replaced by textContent comparison in fixTablePipeTruncation
+
   function render(){
     var cfg=ConfigManager.load();
     var gs=document.querySelectorAll('.chat-group.assistant');
@@ -276,6 +406,7 @@
       if(e.hasAttribute(RD))continue;
       e.setAttribute(RD,'true');
       if(e.textContent.indexOf('$')===-1&&e.textContent.indexOf('\\')===-1&&e.textContent.indexOf('[')===-1)continue;
+      fixTablePipeTruncation(e);
       restoreDelimiters(e);
       try{renderMathInElement(e,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:cfg.throwOnError,strict:false,preProcess:function(t){
         t=t.replace(/\\begin\{multline\}/g,'\\begin{gather*}').replace(/\\end\{multline\}/g,'\\end{gather*}');
@@ -323,7 +454,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.2-m';
+    var CURRENT_VERSION='2.16.7-m';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -356,7 +487,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.16.2-m（移动版）</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.16.7-m（移动版）</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -431,6 +562,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.16.2-m');
+  log('2.16.7-m');
   start();
 })();

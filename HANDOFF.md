@@ -4,10 +4,11 @@
 
 | 项目 | 内容 |
 |------|------|
-| 脚本文件 | `openclaw-latex.user.js` |
-| 最终版本 | **v2.15.3** |
-| 运行环境 | ScriptCat / Tampermonkey |
-| 目标页面 | `http://127.0.0.1:18789/*`、`http://localhost:18789/*`（可通过配置面板扩展） |
+| 桌面版脚本 | `openclaw-latex.user.js`（v2.16.7） |
+| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.16.7-m） |
+| 历史版本 | `openclaw-latex-v2.12.0.user.js`（最后已知可用的移动版） |
+| 运行环境 | ScriptCat / Tampermonkey（桌面）；ScriptCat + Edge Android（移动） |
+| 目标页面 | `http://127.0.0.1:18789/*`、`http://localhost:18789/*`、`https://*.ts.net/*`（可通过配置面板扩展） |
 | KaTeX 版本 | 0.16.9（内联，无外部依赖） |
 
 ## 核心功能
@@ -285,6 +286,133 @@
   - `\cfrac` 用于连续分数（如黄金分割连分数），需要特定的分子分母间距
   - 每次发现新命令，应检查是否属于某个"命令族"，族内成员是否全部包含
 
+### 问题 21：移动端 ScriptCat 脚本完全不运行（v2.16.0-m）
+- **现象**：v2.12.0 在手机版 Edge + ScriptCat 可用，但后续版本安装后完全失效
+- **根因**（3 个，叠加效应）：
+  1. `ConfigManager.matchCurrentUrl()` 启动门控 — v2.12.0 无此检查，v2.13.0+ 新增但移动端 URL 可能不匹配 → 脚本静默跳过
+  2. `GM_registerMenuCommand` 在移动端 ScriptCat 的沙箱模式下不可用 → 未捕获异常导致脚本崩溃
+  3. `render(cfg)` 参数化 — v2.12.0 的 `render()` 无参数，v2.13.0+ 要求传入 `cfg` 对象
+- **修复**（v2.16.0-m）：创建移动端特供版本
+  - `@grant none` — 完全避免沙箱激活（沙箱本身破坏 DOM 访问，不是 API 可用性问题）
+  - `localStorage` 替代 `GM_setValue/GM_getValue` — `@grant none` 下无法使用 GM_* API
+  - DOM 浮动齿轮按钮替代 `GM_registerMenuCommand` — 移动端无扩展菜单
+  - 移除 `ConfigManager.matchCurrentUrl()` 启动门控 — 直接渲染
+  - `render()` 去参数化 — 内部调用 `ConfigManager.load()`
+- **教训**：
+  - ScriptCat Android 的 MV3 模式要求"Allow User Scripts"或 Developer Mode
+  - `@grant none` 是移动端唯一可靠方案 — `@grant` 任何权限都会激活沙箱，破坏 DOM 访问
+  - 移动端 `@match` 使用 `https://*.ts.net/*` 通配符保护隐私（不暴露 Tailscale 域名）
+
+### 问题 22：`LATEX_CMD` 缺少希腊字母命令导致 `$$...$$` 公式未渲染（v2.16.0）
+- **现象**：`$$e^{i\pi} + 1 = 0$$` 显示为原始文本，完全未渲染
+- **根因**：
+  - `LATEX_CMD` 正则中缺少 `\pi`、`\phi`、`\psi`、`\chi`、`\rho`、`\tau`、`\xi`、`\eta`、`\zeta`、`\kappa`、`\nu` 等 17 个希腊字母命令
+  - `restoreDelimiters` 中 `LATEX_CMD.test(dollarInner)` 返回 false
+  - 公式跳过 `$$...$$` 恢复逻辑，auto-render 无法处理
+- **修复**（v2.16.0）：`LATEX_CMD` 正则添加所有缺失的希腊字母命令及 `var` 变体
+  - `pi|phi|psi|chi|rho|tau|xi|eta|zeta|kappa|nu|varphi|vartheta|varpi|varrho|varsigma|varepsilon`
+  - 同时修复桌面版 `openclaw-latex.user.js` 中的 `LATEX_CMD`
+- **教训**：
+  - `LATEX_CMD` 是 `restoreDelimiters` 的守卫条件 — 缺少任何 LaTeX 命令都会导致含该命令的 `$$` 公式被跳过
+  - 应定期对照 KaTeX 支持的命令列表检查 `LATEX_CMD` 覆盖率
+
+### 问题 23：前缀文本+display math 不渲染（v2.16.1）⭐ 显示问题19
+- **现象**：`\[...\]` display math 前有文本（如"计算：\[...\]"、"用...解方程组：\[...\]"）时，公式显示为纯文本，完全未渲染
+- **根因**：
+  - Markdown 把 `"计算：\[...\]"` 渲染为同一个 `<p>` 标签：`"计算：<br>\n[<br>\n\begin{vmatrix}...<br>\n]"`
+  - `restoreDelimiters` 的 display math 检测使用 `trimmed.indexOf('[')===0` 锚点
+  - `[` 不在位置 0（前面有 `"计算：<br>\n"` 前缀文本），整个 `\[...\]` 恢复被跳过
+  - 这是 Markdown 破坏 LaTeX 的新模式：display math 与前缀文本在同一个 `<p>` 中
+- **修复**（v2.16.1）：`restoreDelimiters` 新增前缀文本+display math 检测分支
+  - 条件：`!(trimmed.indexOf('[')===0) && trimmed.endsWith(']')` — 不以 `[` 开头但以 `]` 结尾
+  - 定位：`trimmed.indexOf('[<br>')` 或 `trimmed.indexOf('[\\begin')` 找到 display math 起点
+  - 恢复：`nh = trimmed.substring(0,lb) + '\\[' + preInner.replace(/<br>/g,'') + '\\]'`
+  - 前缀文本保留在 `<p>` 中，display math 内容恢复为 `\[...\]` 格式
+- **影响范围**：所有"中文文本 + display math"组合（计算、设、推导、用...解方程组等）
+
+### 问题 24：前缀文本+display math 中 `restoreInlineMath` 误伤括号（v2.16.2）⭐ 问题 9 回归
+- **现象**：含括号的 display math 公式（如 `\frac{1}{2}(x^2+y^2)`、`\left(...\right)`）渲染为红色错误文本：`Can't use function '\(' in math mode`
+- **根因**：
+  - 问题 23 的修复（v2.16.1）产生 `nh = "计算：<br>\n\[\frac{1}{2}(x^2+y^2)\]"`
+  - `isDisplayMath` 检测使用 `nh.indexOf('\\[')===0` — `\[` 不在位置 0（前面有前缀文本），返回 false
+  - `restoreInlineMath` 在 display math 内部把 `(x^2+y^2)` 错误转为 `\(x^2+y^2\)`
+  - KaTeX 在 display math `\[...\]` 内遇到 `\(...\)` → 语法错误
+  - 这是**问题 9**（v2.8.0）的历史回归 — 当时的修复 `isDisplayMath = nh.indexOf('\\[')===0` 仅在 `nh` 以 `\[` 开头时生效
+- **修复**（v2.16.2）：`isDisplayMath` 检测从位置 0 匹配改为全文匹配
+  - 旧：`var isDisplayMath = nh.indexOf('\\[') === 0 || nh.indexOf('$$') === 0;`
+  - 新：`var isDisplayMath = nh.indexOf('\\[') !== -1 || nh.indexOf('$$') !== -1;`
+  - `\[` 或 `$$` 出现在 `nh` 中任何位置都标记为 display math，跳过 `restoreInlineMath`
+- **验证**：
+  - vmatrix + prefix text → 2 行渲染 ✓
+  - 3x3 pmatrix + prefix text → 3 行渲染 ✓
+  - `\frac{1}{2}(x^2+y^2)` + prefix → 括号未误伤 ✓
+  - `\left(...\right)` + prefix → 括号未误伤 ✓
+  - `(z^2+x)=(x^2+y^2)^{1/2}` + prefix → 括号未误伤 ✓
+  - 正常 `\[...\]` display math → 无回归 ✓
+  - `$$...$$` display math → 无回归 ✓
+- **教训**：
+  - 任何修改 `restoreDelimiters` 输出 `nh` 格式的改动都必须重新检查 `isDisplayMath` 检测
+  - `===0` 锚点假设 `nh` 以 display math 分隔符开头 — 前缀文本分支打破了这个假设
+  - 问题 9（v2.8.0）的 `isDisplayMath` 修复是防御性的 — 它必须覆盖所有 `nh` 包含 display math 的场景，不仅是 `nh` 以 display math 开头的场景
+
+### 问题 25：`<br>` 和 `<em>` 在 `\(...\)` inline math 内导致渲染失败（v2.16.4）⭐ 显示问题22/23
+- **现象**：表格 `<td>` 中的 `\(\vec{a}\cdot\vec{b}\)` 显示为纯文本；含 `\dfrac{...}{...}` 的公式在 `\dfrac{` 处截断
+- **根因**：
+  - Markdown 在 `\dfrac` 的花括号内插入 `<br>` 标签
+  - Markdown 将 `_{...}` 下标中的 `_` 转为 `<em>` 标签
+  - `restoreInlineMath` 恢复 `\(...\)` 后，`<br>` 和 `<em>` 仍然留在 inline math 内容中
+  - KaTeX 无法渲染含 `<br>` 的 `\dfrac`，也无法识别 `<em>` 标签
+  - display math 分支有 `inner.replace(/<br>/g,'')` 移除 `<br>`，但 inline math 分支没有
+  - `fixEmInDollarMath` 只处理 `$...$` 范围内的 `<em>`，不处理 `\(...\)` 中的 `<em>`
+- **修复**（v2.16.4）：`restoreDelimiters` 在 `restoreInlineMath` 之后新增 `\(...\)` 内容清理步骤
+  - 正则 `/\\\(([\s\S]*?)\\\)/g` 匹配所有 inline math 内容
+  - 对每个匹配的内部内容移除 `<br>` 和修复 `<em>` → `_`
+  - 仅在内容有变化时替换，避免无意义的DOM更新
+- **验证**：
+  - 含 `<br>` 的 `\(\cos\theta = \dfrac{...}{...}\)` → 渲染成功 ✓
+  - 含 `<em>` 的 `\(\vec{a}_{b}\)` → 渲染成功 ✓
+  - 简单 `\(\vec{a}\cdot\vec{b}\)` → 无回归 ✓
+  - `$...$` 分隔符 → 无回归 ✓
+  - `\[...\]` display math → 无回归 ✓
+- **教训**：
+  - `restoreInlineMath` 恢复分隔符后，分隔符内的HTML残留物（`<br>`、`<em>`）同样需要清理
+  - display math 和 inline math 的处理必须对称——display math 有 `<br>` 移除，inline math 也需要
+  - `fixEmInDollarMath` 的 `$` 分隔符限制不覆盖 `\(...\)` 场景，需要在恢复后统一处理
+
+### 问题 26：Markdown 表格 `|` 管道符截断 LaTeX 绝对值符号导致公式丢失（v2.16.7）⭐ 显示问题24
+- **现象**：表格中含 `|\vec{a}|` 绝对值的公式（如 `\(\cos\theta = \dfrac{\vec{a}\cdot\vec{b}}{|\vec{a}||\vec{b}|}\)`）截断显示——`\dfrac` 花括号未闭合，公式后半部分完全丢失
+- **根因**：
+  - Markdown 表格语法用 `|` 作为列分隔符
+  - `|\vec{a}||\vec{b}|` 中的 `|` 被 Markdown 解析为列边界，公式在 `|` 处被截断
+  - 截断后 cell 内容只保留第一个 `|` 前的部分（如 `\dfrac{\vec{a}\cdot\vec{b}}{`），后面全部丢失
+  - DOM 中 `<td>` 的内容是截断后的 HTML，纯 DOM 操作无法恢复丢失的内容
+- **修复**（v2.16.5→v2.16.6）：新增 `fixTablePipeTruncation()` 函数
+  - 从 `openclaw-app.chatMessages` 获取原始 Markdown 源码
+  - `parseMdCells()`：LaTeX-aware 的 Markdown 表格行解析器，在 `\(...\)`、`\[...\]` 内和花括号深度 > 0 时保留 `|`
+  - 通过 header 列数 + body 行首 cell 文本指纹匹配 DOM `<table>` 到 Markdown 表格
+  - `mdCellToHtml()`：将 Markdown cell 内容转为 HTML（保留 `\(...\)` 分隔符）
+  - **v2.16.5 初版**：用 `hasTruncatedMath()` 5种模式检测截断 → 遗漏2种截断场景
+  - **v2.16.6 修复**：移除 `hasTruncatedMath`，改为 textContent 比较——将 MD 源码解析的 cell 文本（去掉 `\(\)` 反斜杠和 Markdown 格式标记）与 DOM cell 的 textContent 比较，不同则替换
+- **v2.16.6 修复原因**：
+  - `hasTruncatedMath` 的5种模式遗漏2种截断：`"平行四边形面积 (="`（`(=`结尾）和 `"("`（单独一个`(`）
+  - 有限的截断模式列表无法覆盖所有 Markdown 破坏 LaTeX 的方式
+  - textContent 比较更可靠：MD 源码是 ground truth，DOM 内容不同即说明被截断
+- **验证**：
+  - 6 个截断 cell 全部修复 ✓（表格0: 求夹角/求投影行，表格1: 求面积行，表格2: 公式行数量积列/向量积列+垂直行向量积列）
+  - 0 个正常 cell 被误改 ✓
+  - `\dfrac` 花括号平衡 ✓
+  - `|\vec{a}||\vec{b}|` 完整保留 ✓
+- **教训**：
+  - Markdown 表格 `|` 与 LaTeX `|` 绝对值符号冲突是系统性的——任何含 `|` 的公式在表格中都会被截断
+  - DOM 中截断后的内容无法凭空恢复，必须利用原始 Markdown 源码重新解析
+  - `parseMdCells` 必须同时跟踪 `\(...\)`、`\[...\]` 分隔符状态和 `{}` 花括号深度，三者缺一都会导致 `|` 误判
+  - 行首 cell 文本指纹匹配比 mdMap key 遍历更可靠——mdMap 的 key 可能与 DOM `<table>` 的顺序不一致
+  - 不要用有限的截断检测模式列表——改用 ground truth（MD 源码）与 DOM 内容的文本比较
+- **v2.16.7 修复**（round3）：`restoreInlineMath` 双重包装 `\(...\)` 导致 KaTeX 不渲染
+  - **根因**：`fixTablePipeTruncation` 将 `<td>` innerHTML 设为含 `\(...\)` 的 MD 源码，随后 `restoreInlineMath` 把 `\(` 中的 `(` 当作普通括号再包装一层，产生 `\\(\\)` 双重分隔符，KaTeX 无法识别
+  - **修复**：在 `restoreInlineMath` 的括号扫描循环中，使用奇偶反斜杠计数跳过 `\(` 和 `\)` — 奇数个连续 `\` 前的 `(` 或 `)` 是 LaTeX 分隔符，不应被二次包装
+  - **验证**：4个浏览器测试全部通过（`\(...\)` 不被双重包装、纯 `(...)` 被正确转为 `\(...\)`、混合内容不受影响、嵌套括号正常处理）
+
 ### 失败的尝试（已排除）
 - ❌ `mathml.remove()` → 矩阵退化为单行
 - ❌ `mathml.innerHTML = ''` → 矩阵渲染失效
@@ -311,10 +439,15 @@ OpenClaw AI 回复（Markdown 含 LaTeX）
   ↓ Markdown 渲染器处理
   ↓ ⚠️ \[ → [、\( → （反斜杠被吃掉）
   ↓ ⚠️ \\ → \（换行符丢失）
+  ↓ ⚠️ 前缀文本 + \[...\] 在同一个 <p> 中（显示问题19）
+  ↓ ⚠️ 表格 | 截断 |\vec{a}| 绝对值（显示问题24）
 DOM 中的聊天消息
+  ↓ fixTablePipeTruncation() — 从原始 Markdown 修复表格中被 | 截断的 cell（v2.16.5 新增，v2.16.6 改进）
   ↓ restoreDelimiters() — 恢复分隔符
-  ↓   [含LaTeX...] → \[...\]（首尾锚点，不误匹配 \big]）
-  ↓   ⚠️ display math 元素跳过 restoreInlineMath（v2.8.0 修复）
+  ↓   [含LaTeX...] → \[...\]（首尾锚点）
+  ↓   前缀文本+[含LaTeX...] → 前缀文本+\[...\]（v2.16.1 新增）
+  ↓   ⚠️ isDisplayMath 检测用 indexOf!==-1，不依赖位置0锚点（v2.16.2 修复）
+  ↓   display math 元素跳过 restoreInlineMath（v2.8.0 修复，v2.16.2 加强）
   ↓ restoreInlineMath() — 平衡括号恢复 inline math（仅非 display math）
   ↓   (含\cmd...) → \(...\)（支持嵌套括号）
   ↓ renderMathInElement() — KaTeX 渲染
@@ -328,6 +461,9 @@ DOM 中的聊天消息
 
 | 文件 | 说明 |
 |------|------|
-| `openclaw-latex.user.js` | 用户脚本（v2.15.3） |
+| `openclaw-latex.user.js` | 桌面版用户脚本（v2.16.7） |
+| `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.16.7-m，@grant none + localStorage） |
+| `openclaw-latex-v2.12.0.user.js` | 历史版本（最后已知可用的移动版，参考用） |
 | `HANDOFF.md` | 本文档 |
-| `docs/` | 补充文档（如有） |
+| `AGENTS.md` | 开发经验手册 |
+| `skills/` | 调试技能（openclaw-latex-debugger） |
