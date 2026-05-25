@@ -6,6 +6,7 @@
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
 // @match        http://localhost:18789/*
+// @match        https://*.ts.net/*
 // @run-at       document-idle
 // @grant        none
 // @license      MIT
@@ -254,7 +255,8 @@
     return r;
   }
 
-  function render(cfg){
+  function render(){
+    var cfg=ConfigManager.load();
     var gs=document.querySelectorAll('.chat-group.assistant');
     for(var i=0;i<gs.length;i++){
       var e=gs[i];
@@ -263,56 +265,45 @@
       if(e.textContent.indexOf('$')===-1&&e.textContent.indexOf('\\')===-1&&e.textContent.indexOf('[')===-1)continue;
       restoreDelimiters(e);
       try{renderMathInElement(e,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:cfg.throwOnError,strict:false,preProcess:function(t){
-        // KaTeX 不支持 multline 环境，替换为 gather*（视觉相似，都居中对齐）
         t=t.replace(/\\begin\{multline\}/g,'\\begin{gather*}').replace(/\\end\{multline\}/g,'\\end{gather*}');
-        // KaTeX 不支持 mhchem \ce 命令，用 \mathrm 替代（支持上下标，而非 \text 不支持）
         t=t.replace(/\\ce\{/g,'\\mathrm{').replace(/\\ce\s+/g,'\\mathrm{');
-        // KaTeX 不支持 \requirecolor、\require{...} 和 \definecolor，移除这些命令但保留后续内容
-        // 支持 \requirecolor、\requirecolor{package}、\require{color}、\require{amsmath} 等所有格式
         t=t.replace(/\\require(?:color)?(?:\{[^}]*\})?/g,'').replace(/\\definecolor\{([^}]+)\}\{([^}]+)\}\{([^}]+)\}/g,'');
-        // Markdown 渲染器将 \\ 处理为 \，在矩阵/数组环境内恢复换行符
         var envs='pmatrix|bmatrix|matrix|vmatrix|Vmatrix|array|cases|align|aligned|gather|gathered|split|multline|flalign';
         var p=new RegExp('(\\\\begin\\{(?:'+envs+')\\}(?:[\\s\\S]*?)\\\\end\\{(?:'+envs+')\\})','g');
         return t.replace(p,function(b){
-          // 在环境块内，将反斜杠+空白替换为双反斜杠+空白
-          // 排除 \begin 和 \end（它们的后面是 {，不是空白）
           b=b.replace(/^\\([ \t\n\r])/, '\\\\$1').replace(/([^\\])\\([ \t\n\r])/g, '$1\\\\$2');
-          // 在环境块内，恢复 \\[length] 间距命令（Markdown 将 \\[2mm] 吃为 \[2mm]）
-          // \[ 在 aligned 等环境内是非法的（它是 display math 分隔符），这里恢复为 \\[2mm] 换行+间距
-          // 匹配模式：行首或非反斜杠后跟 \[加可选长度参数]，如 \[2mm]、\[4pt]、\[]
           b=b.replace(/(^|[^\\])\\\[([\d]*(?:mm|pt|em|ex|cm|in)?)/g, '$1\\\\[$2');
           return b;
         });
       }})}catch(err){}
     }
-    // 渲染完成后，把所有结果迁移到 Shadow DOM
     if(cfg.shadowDOM)isolateKatex();
   }
 
   function start(){
-    var cfg=ConfigManager.load();
-    if(!ConfigManager.matchCurrentUrl(cfg)){log('skipped: url not in config');return}
-    var btn=document.createElement('div');
-    btn.innerHTML='&#9881;';
-    btn.title='OpenClaw LaTeX 设置';
-    btn.style.cssText='position:fixed;top:4px;right:4px;z-index:2147483646;width:32px;height:32px;border-radius:50%;background:#fff;border:1px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.15);user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:background 0.2s';
-    btn.onmouseenter=function(){btn.style.background='#e8e8e8'};
-    btn.onmouseleave=function(){btn.style.background='#fff'};
-    btn.onclick=function(){SettingsPanel.show(ConfigManager.load())};
-    document.body.appendChild(btn);
     var tm=null;
-    function sch(){clearTimeout(tm);tm=setTimeout(function(){render(cfg)},DB)}
+    function sch(){clearTimeout(tm);tm=setTimeout(function(){render()},DB)}
     function init(a){a=a||0;
     var c=document.querySelector('.chat-thread-inner')||document.querySelector('main')||document.body;
     if(c===document.body&&a<30){setTimeout(function(){init(a+1)},1000);return}
     log('ready');
+    try{
+      var btn=document.createElement('div');
+      btn.innerHTML='&#9881;';
+      btn.title='OpenClaw LaTeX 设置';
+      btn.style.cssText='position:fixed;top:4px;right:4px;z-index:2147483646;width:32px;height:32px;border-radius:50%;background:#fff;border:1px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,0.15);user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:background 0.2s';
+      btn.onmouseenter=function(){btn.style.background='#e8e8e8'};
+      btn.onmouseleave=function(){btn.style.background='#fff'};
+      btn.onclick=function(){try{SettingsPanel.show(ConfigManager.load())}catch(e){log('settings error:',e)}};
+      document.body.appendChild(btn);
+    }catch(e){log('gear button error:',e)}
     new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i];
       if(m.type==='childList'){for(var j=0;j<m.addedNodes.length;j++){var n=m.addedNodes[j];if(n.nodeType!==Node.ELEMENT_NODE)continue
       if(n.matches&&(n.matches('.chat-group.assistant')||n.matches('.chat-reading-indicator')||n.matches('.chat-bubble'))){sch();return}
       if(n.querySelector&&(n.querySelector('.chat-group.assistant')||n.querySelector('.chat-reading-indicator')||n.querySelector('.chat-bubble'))){sch();return}}}
       if(m.type==='characterData'){var p=m.target.parentElement;if(p&&p.closest&&p.closest('.chat-bubble')){sch();return}}}
     }).observe(c,{childList:true,subtree:true,characterData:true});
-    render(cfg);
+    render();
     }
     setTimeout(init,1000);
   }
