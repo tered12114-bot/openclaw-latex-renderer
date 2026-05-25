@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 桌面版脚本 | `openclaw-latex.user.js`（v2.16.7） |
-| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.16.7-m） |
+| 桌面版脚本 | `openclaw-latex.user.js`（v2.16.8） |
+| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.16.8-m） |
 | 历史版本 | `openclaw-latex-v2.12.0.user.js`（最后已知可用的移动版） |
 | 运行环境 | ScriptCat / Tampermonkey（桌面）；ScriptCat + Edge Android（移动） |
 | 目标页面 | `http://127.0.0.1:18789/*`、`http://localhost:18789/*`、`https://*.ts.net/*`（可通过配置面板扩展） |
@@ -411,7 +411,12 @@
 - **v2.16.7 修复**（round3）：`restoreInlineMath` 双重包装 `\(...\)` 导致 KaTeX 不渲染
   - **根因**：`fixTablePipeTruncation` 将 `<td>` innerHTML 设为含 `\(...\)` 的 MD 源码，随后 `restoreInlineMath` 把 `\(` 中的 `(` 当作普通括号再包装一层，产生 `\\(\\)` 双重分隔符，KaTeX 无法识别
   - **修复**：在 `restoreInlineMath` 的括号扫描循环中，使用奇偶反斜杠计数跳过 `\(` 和 `\)` — 奇数个连续 `\` 前的 `(` 或 `)` 是 LaTeX 分隔符，不应被二次包装
-  - **验证**：4个浏览器测试全部通过（`\(...\)` 不被双重包装、纯 `(...)` 被正确转为 `\(...\)`、混合内容不受影响、嵌套括号正常处理）
+   - **验证**：4个浏览器测试全部通过（`\(...\)` 不被双重包装、纯 `(...)` 被正确转为 `\(...\)`、混合内容不受影响、嵌套括号正常处理）
+- **v2.16.8 修复**（round4）：`fixTablePipeTruncation` 无法检测 `\(` 反斜杠被 Markdown 吃掉的情况
+  - **问题**：表格中 `(\vec{a}\cdot\vec{b})` 和 `(\vec{a}\times\vec{b})` 未渲染
+  - **根因**：Markdown 吃掉 `\(` 和 `\)` 的 `\`，但 `fixTablePipeTruncation` 的 textContent 比较 — MD 解析的文本（去掉 `\(` 的 `\` 后）与 DOM textContent（本身就没有 `\`）相同，无法检测到截断
+  - **修复**：新增 `backslashParenBroken` 检测，修改条件为 `if(mdText!==domText||backslashParenBroken)`
+  - **验证**：`(\vec{a}\cdot\vec{b})` 渲染成功 ✓、`(\vec{a}\times\vec{b})` 渲染成功 ✓、`|\vec{a}|` 绝对值正常 ✓、表格中正常 `\(...\)` 无回归 ✓
 
 ### 失败的尝试（已排除）
 - ❌ `mathml.remove()` → 矩阵退化为单行
@@ -461,8 +466,8 @@ DOM 中的聊天消息
 
 | 文件 | 说明 |
 |------|------|
-| `openclaw-latex.user.js` | 桌面版用户脚本（v2.16.7） |
-| `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.16.7-m，@grant none + localStorage） |
+| `openclaw-latex.user.js` | 桌面版用户脚本（v2.16.8） |
+| `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.16.8-m，@grant none + localStorage） |
 | `openclaw-latex-v2.12.0.user.js` | 历史版本（最后已知可用的移动版，参考用） |
 | `HANDOFF.md` | 本文档 |
 | `AGENTS.md` | 开发经验手册 |

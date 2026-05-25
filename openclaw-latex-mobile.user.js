@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器（移动版）
 // @namespace    https://github.com/openclaw-latex
-// @version      2.16.7-m
+// @version      2.16.8-m
 // @description  OpenClaw LaTeX 渲染（移动端兼容版，使用 localStorage 替代 GM_* API，避免沙箱激活）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -388,7 +388,12 @@
           // (Markdown renderer strips \ from \( and \), so DOM textContent has () not \(\))
           var mdText=mdContent.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/\\\(/g,'(').replace(/\\\)/g,')').trim();
           var domText=domCells[dc].textContent.trim();
-          if(mdText!==domText){
+          // 问题24-round4: 检测 \(...\) 被 Markdown 破坏 — 反斜杠被吃掉但 textContent 无法反映
+          // mdText==domText doesn't mean the cell is intact — \( might be stripped to (
+          var mdHasBackslashParen=/\\[()]/.test(mdContent);
+          var domMissingBackslashParen=domCells[dc].innerHTML.indexOf('\\(')===-1&&domCells[dc].innerHTML.indexOf('\\)')===-1;
+          var backslashParenBroken=mdHasBackslashParen&&domMissingBackslashParen;
+          if(mdText!==domText||backslashParenBroken){
             var newHtml=mdCellToHtml(mdContent);
             domCells[dc].innerHTML=newHtml;
           }
@@ -454,7 +459,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.7-m';
+    var CURRENT_VERSION='2.16.8-m';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -487,7 +492,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.16.7-m（移动版）</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.16.8-m（移动版）</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -562,6 +567,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.16.7-m');
+  log('2.16.8-m');
   start();
 })();
