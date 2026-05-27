@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 桌面版脚本 | `openclaw-latex.user.js`（v2.16.8） |
-| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.16.8-m） |
+| 桌面版脚本 | `openclaw-latex.user.js`（v2.17.1） |
+| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.17.1-m） |
 | 历史版本 | `openclaw-latex-v2.12.0.user.js`（最后已知可用的移动版） |
 | 运行环境 | ScriptCat / Tampermonkey（桌面）；ScriptCat + Edge Android（移动） |
 | 目标页面 | `http://127.0.0.1:18789/*`、`http://localhost:18789/*`、`https://*.ts.net/*`（可通过配置面板扩展） |
@@ -427,6 +427,58 @@
     2. `fixTablePipeTruncation` 新增 header row `<th>` 处理逻辑（与 body `<td>` 逻辑对称）
   - **验证**：表头 `\(\vec{a}\cdot\vec{b}\)` 渲染成功 ✓、表头 `\(\vec{a}\times\vec{b}\)` 渲染成功 ✓、表体公式无回归 ✓
 
+### 问题 27：`restoreInlineMath` 对 `\(...\)` 包裹内容做二次包装导致 `\det(A=...)` 红色报错（v2.17.0）⭐ 显示问题27
+- **现象**：`\det(A) = 1\cdot4 - 2\cdot3 = -2` 渲染为红色 KaTeX 错误 `\det(A = 1\cdot4 - 2\cdot3 = -2)`
+- **根因**：`restoreInlineMath` 的平衡括号算法在扫描 `(...)` 时无法识别已被 `\(...\)` 包裹的内容
+  - `<li>` 中的 `( \det(A) = 1\cdot4 - 2\cdot3 = -2 )` 被整个包装为 `\(\det(A = ...)\)`，`\det(` 的括号被外层括号吞掉
+  - `fixTablePipeTruncation` 或 `fixInlineMathDelimiters` 已将内容设为 `\(...\)`，但 `restoreInlineMath` 不知道跳过
+- **修复**（v2.17.0）：在 `restoreInlineMath` 括号扫描循环中加入 `inLatexInline` / `inLatexDisplay` 状态跟踪
+  - 遇到 `\(` → 进入 inline math，跳过内部所有括号
+  - 遇到 `\)` → 退出 inline math
+  - 遇到 `\[` → 进入 display math，跳过内部所有括号
+  - 遇到 `\]` → 退出 display math
+- **同时修复**（v2.17.0 round6）：
+  - 重排序处理流程：inline math → display math → 清理 display math 内误插入的 `\(...\)`
+  - 新增 `mathVarRe` 识别 `A^{-1}`、`A^T` 等数学变量模式
+  - 新增 `fixInlineMathDelimiters()` 从 `chatMessages` 源码辅助恢复单字母数学变量
+  - 新增 `\(...\)` 内部 `<br>` 和 `<em>` 清理
+  - 新增 `\;` thin space 三模式恢复
+- **验证**：`\(\det(A) = 1\cdot4 - 2\cdot3 = -2\)` KaTeX 渲染 OK ✓、回归测试 8/8 通过 ✓
+
+### 问题 28：`[<br>...<br>]` 在 `<p>` 中间无法被 display math 分支恢复（v2.17.1）⭐ 显示问题28
+- **现象**：所有矩阵公式显示为原始 LaTeX 文本，`[` 和 `]` 以裸括号形式出现
+- **根因**：Markdown 将 `\[...\]` 渲染为 `[<br>...<br>]`，但当它位于 `<p>` 中间（前后都有文本）时：
+  - 不以 `[` 开头，不以 `]` 结尾 → 不匹配 `startsWith('[') && endsWith(']')` 分支
+  - 不以 `[` 开头，但以 `]` 结尾 → 匹配 branch2，但仅恢复 `[...]` 后面的内容
+  - 前后有文本的 `[...]<br>more text` → **完全不匹配任何现有分支**
+  - 例：`求逆矩阵（基础公式）<br>\n[<br>\nA = \begin{pmatrix}...<br>\n]<br>\n求 A^{-1}`
+- **修复**（v2.17.1）：新增中间 display math 恢复逻辑
+  - 使用正则 `/\[<br>\n([\s\S]*?)<br>\n\]/g` 匹配 `<p>` 中的 `[<br>...<br>]` 模式
+  - 条件：`nh.indexOf('[<br>') !== -1 && nh.indexOf('\\[') === -1`（确保不是已经恢复过的）
+  - 解码 HTML 实体 + 检测 LaTeX 命令 → 转换为 `\[...\]`
+  - 插入位置：在现有 display math 分支之后、`\[...\]` 内部清理之前
+- **验证**：问题28完整渲染 9 个 KaTeX 元素 0 错误 ✓、问题27 10 个 KaTeX 元素 0 错误 ✓
+
+### 问题 29：`fixInlineMathDelimiters` 误匹配 `\det(A)` 中的 `(A)` 导致渲染报错（v2.18.1）⭐ 显示问题29
+- **现象**：包含 `\det(A) = ...` 的行渲染为红色 KaTeX 错误，因为 `\det\(A\)` 不是合法 LaTeX
+- **根因**：`fixInlineMathDelimiters` 从 `mdInline` 获取短条目如 `(A)`（来自 `\( A \)`），然后在 HTML 中查找 `(A)`。当 `\det(A) = ...` 存在时，`(A)` 被匹配并转为 `\(A\)`，破坏了 `\det(A)` → `\det\(A\)`
+- **修复**（v2.18.1）：新增 `isSafeParenCtx(html, idx)` 函数
+  - 检查 `(` 位置 `idx` 的前一个字符：如果是 `\` 或 `\cmd` 模式（如 `\det(`），则返回 `false`
+  - 在所有 `bare`/`bareNoSpace`/正则匹配处调用 `isSafeParenCtx`，不安全时跳过替换
+  - 逻辑：`prev==='\\'` → 直接不安全；`prev` 是字母且前面有 `\` → `\cmd(` 模式不安全
+- **验证**：`\det(A) = ad - bc` 渲染正常 0 错误 ✓
+
+### 问题 30：Display math `AB = BA = I_n` 不恢复（v2.18.1）⭐ 显示问题30
+- **现象**：`\[AB = BA = I_n\]` 显示为原始文本 `AB = BA = I_n`，不被 KaTeX 渲染
+- **根因**：`hasMathContent()` 仅调用 `LATEX_CMD.test()`，`LATEX_CMD` 匹配 `\cmd` 模式。`I_n` 的下标 `_[a-zA-Z]` 不包含 `\cmd`，所以 `hasMathContent()` 返回 `false`，display math 未恢复
+  - 旧 `MATH_RE` 正则 `/\\[a-zA-Z]|\^[\d{]|_\d|_\{/` 缺少 `_[a-zA-Z]` 模式（如 `I_n`, `x_m`）
+  - 7 处 `LATEX_CMD.test()` 调用只检查 `\cmd`，不检查下标/上标
+- **修复**（v2.18.1）：
+  1. 扩展 `MATH_RE` 为 `/\\[a-zA-Z]|\^[\d{]|_\d|_\{|_[a-zA-Z]/`，新增 `_[a-zA-Z]` 匹配
+  2. 创建 `hasMathContent(s)` 辅助函数：`LATEX_CMD.test(s) || MATH_RE.test(s.replace(/<br>/g,''))`
+  3. 替换所有 7 处 `LATEX_CMD.test()` 为 `hasMathContent()`
+- **验证**：`AB = BA = I_n` display math 正常渲染 ✓
+
 ### 失败的尝试（已排除）
 - ❌ `mathml.remove()` → 矩阵退化为单行
 - ❌ `mathml.innerHTML = ''` → 矩阵渲染失效
@@ -475,7 +527,7 @@ DOM 中的聊天消息
 
 | 文件 | 说明 |
 |------|------|
-| `openclaw-latex.user.js` | 桌面版用户脚本（v2.16.8） |
+| `openclaw-latex.user.js` | 桌面版用户脚本（v2.18.1） |
 | `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.16.8-m，@grant none + localStorage） |
 | `openclaw-latex-v2.12.0.user.js` | 历史版本（最后已知可用的移动版，参考用） |
 | `HANDOFF.md` | 本文档 |

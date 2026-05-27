@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-// @version      2.16.9
+// @version      2.18.1
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -98,7 +98,9 @@
     var r=html;
     for(var p=pairs.length-1;p>=0;p--){
       var seg=r.substring(pairs[p].s,pairs[p].e);
-      var fixed=seg.replace(/<em>/g,'_').replace(/<\/em>/g,'_');
+      // markdown-it turns _0 → <em>0</em> (single underscore prefix, closed by $ boundary)
+      // Restore: <em>X</em> → _X (NOT _X_) — the closing </em> was implicit, not an extra _
+      var fixed=seg.replace(/<em>/g,'_').replace(/<\/em>/g,'');
       if(fixed!==seg)r=r.substring(0,pairs[p].s)+fixed+r.substring(pairs[p].e);
     }
     return r;
@@ -107,8 +109,12 @@
   function restoreDelimiters(root){
     if(!root.querySelectorAll)return;
     var LATEX_CMD=/\\(?:oiiint|oiint|iiint|iint|int|frac|cfrac|tfrac|dfrac|begin|end|sqrt|sum|prod|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|pi|phi|psi|chi|rho|tau|xi|eta|zeta|kappa|nu|varphi|vartheta|varpi|varrho|varsigma|varepsilon|cos|sin|tan|log|ln|exp|lim|inf|sup|min|max|to|infty|partial|nabla|cdot|times|qquad|quad|left|right|big|Big|text|mathrm|mathbf|mathit|mathcal|mathbb|mathfrak|mathscr|pmb|bar|hat|vec|tilde|dot|ddot|overline|underline|overrightarrow|overleftarrow|widehat|widetilde|displaystyle|textstyle|scriptstyle|binom|dbinom|tbinom|stackrel|overset|underset|substack|cancel|bcancel|xcancel|cancelto|color|fcolorbox|boxed|phantom|hphantom|vphantom|smash|llap|rlap|mathclap|mathllap|mathrlap|ce|mhchem|xrightarrow)/;
-    var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{/;
-    // Process p, td, li elements (not just p)
+    var MATH_RE=/\\[a-zA-Z]|\^[\d{]|_\d|_\{|_[a-zA-Z]/;
+    // 问题29/30: 判断内容是否包含数学表达式——同时检查 \cmd 命令和下标/上标模式
+    function hasMathContent(s){return LATEX_CMD.test(s)||MATH_RE.test(s.replace(/<br>/g,''));}
+    // 问题25/26-round6: 纯数学变量字母（无\cmd前缀）在数学上下文中也应恢复为\(...\)
+    // 匹配: 单个大写字母(A-Z) + 可选下标, ^{-1}, ^{-T}, ^T, ^n, _n, _{n}, 小写希腊等
+    var MATH_VAR_RE=/^[A-ZnIk]$|^[A-Z][Tn]?$|^[A-Z]\^{-1}$|^[A-Z]\^{-T}$|^[A-Z]\^{[0-9]}$|^[A-Za-z]\^$|^[A-Za-z]_\d$/;
     var els=root.querySelectorAll('p,td,li,th,h1,h2,h3,h4,h5,h6');
     for(var i=0;i<els.length;i++){
       var el=els[i],h=el.innerHTML;
@@ -122,24 +128,31 @@
       if(h.indexOf('[')===-1&&h.indexOf('(')===-1&&h.indexOf('$$')===-1)continue;
       var nh=h;
       var trimmed=h.trim();
+      // Restore inline math \(...\) BEFORE display math
+      // Then display math restoration won't skip inline math outside \[...\]
+      // 问题25/26-round6: 先恢复inline math，再恢复display math，最后清理display math内误插入的\(...\)
+      if(nh.indexOf('(')!==-1){
+        nh=restoreInlineMath(nh,MATH_RE);
+      }
       // Display math: [ at start, ] at end
-      if(trimmed.indexOf('[')===0&&trimmed.endsWith(']')){
-        var inner=trimmed.substring(1,trimmed.length-1);
+      var trimmedNh=nh.trim();
+      if(trimmedNh.indexOf('[')===0&&trimmedNh.endsWith(']')){
+        var inner=trimmedNh.substring(1,trimmedNh.length-1);
         inner=inner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-        if(LATEX_CMD.test(inner)){
-          nh='\\['+inner.replace(/<br>/g,'')+'\\]';
+        if(hasMathContent(inner)){
+          var cleanedInner=inner.replace(/<br>/g,'');
+          nh='\\['+cleanedInner+'\\]';
         }
       }
-      // Display math with prefix text: ends with ] but doesn't start with [
-      // e.g., "计算：<br>\n[<br>\n\begin{vmatrix}...<br>\n]"
-      else if(!(trimmed.indexOf('[')===0)&&trimmed.endsWith(']')){
-        var lb=trimmed.indexOf('[<br>');
-        if(lb===-1)lb=trimmed.indexOf('[\\begin');
+      else if(!(trimmedNh.indexOf('[')===0)&&trimmedNh.endsWith(']')){
+        var lb=trimmedNh.indexOf('[<br>');
+        if(lb===-1)lb=trimmedNh.indexOf('[\\begin');
         if(lb!==-1){
-          var preInner=trimmed.substring(lb+1,trimmed.length-1);
+          var preInner=trimmedNh.substring(lb+1,trimmedNh.length-1);
           preInner=preInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-          if(LATEX_CMD.test(preInner)){
-            nh=trimmed.substring(0,lb)+'\\['+preInner.replace(/<br>/g,'')+'\\]';
+          if(hasMathContent(preInner)){
+            var preCleaned=preInner.replace(/<br>/g,'');
+            nh=trimmedNh.substring(0,lb)+'\\['+preCleaned+'\\]';
           }
         }
       }
@@ -147,7 +160,7 @@
       else if(trimmed.indexOf('$$')===0&&trimmed.endsWith('$$')){
         var dollarInner=trimmed.substring(2,trimmed.length-2);
         dollarInner=dollarInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-        if(LATEX_CMD.test(dollarInner)){
+        if(hasMathContent(dollarInner)){
           nh='$$'+dollarInner.replace(/<br>/g,'')+'$$';
         }
       }
@@ -172,7 +185,7 @@
             allInner=allInner.substring(0,allInner.length-1);
             // Decode HTML entities: &amp; → &, &lt; → <, &gt; → >
             allInner=allInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-            if(LATEX_CMD.test(allInner)){
+            if(hasMathContent(allInner)){
               // Replace p with the merged display math
               nh='\\['+allInner.replace(/<br>/g,'')+'\\]';
               // Remove the ul since its content is now in the p
@@ -197,24 +210,42 @@
             }
             dollarAllInner=dollarAllInner.substring(0,dollarAllInner.length-2);
             dollarAllInner=dollarAllInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-            if(LATEX_CMD.test(dollarAllInner)){
+            if(hasMathContent(dollarAllInner)){
               nh='$$'+dollarAllInner.replace(/<br>/g,'')+'$$';
               dollarNext.remove();
             }
           }
         }
       }
-      // Only apply inline math restoration to non-display-math elements
-      // (display math \[...\] already has its own delimiters;
-      //  restoreInlineMath would incorrectly convert (x^2) to \(x^2\) inside it)
-      var isDisplayMath=nh.indexOf('\\[')!==-1||nh.indexOf('$$')!==-1;
-      if(!isDisplayMath&&nh.indexOf('(')!==-1){
-        nh=restoreInlineMath(nh,MATH_RE);
+      // 问题28: display math在<p>中间 — [<br>...<br>]前后都有文本
+      // 现有分支只匹配startsWith('[')或endsWith(']')，无法匹配中间模式
+      if(nh.indexOf('[<br>')!==-1&&nh.indexOf('\\[')===-1){
+        nh=nh.replace(/\[<br>\n([\s\S]*?)<br>\n\]/g,function(match,inner){
+          var decoded=inner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+          if(hasMathContent(decoded)){
+            return '\\['+decoded.replace(/<br>/g,'')+'\\]';
+          }
+          return match;
+        });
+      }
+      // 问题25/26-round6: display math恢复后，清除\[...\]内部被误插入的\(...\)
+      if(nh.indexOf('\\[')!==-1){
+        nh=nh.replace(/\\\[([\s\S]*?)\\\]/g,function(m,inner){
+          var cleaned=inner.replace(/\\\(/g,'(').replace(/\\\)/g,')');
+          return cleaned!==inner?'\\['+cleaned+'\\]':m;
+        });
+      }
+      // 同理：清除$$...$$内部被误插入的\(...\)
+      if(nh.indexOf('$$')!==-1&&nh.indexOf('\\(')!==-1){
+        nh=nh.replace(/\$\$([\s\S]*?)\$\$/g,function(m,inner){
+          var cleaned=inner.replace(/\\\(/g,'(').replace(/\\\)/g,')');
+          return cleaned!==inner?'$$'+cleaned+'$$':m;
+        });
       }
       // Fix <br> and <em> inside \(...\) — 问题22/23: Markdown在\dfrac内插<br>，_{...}被转<em>
       if(nh.indexOf('\\(')!==-1){
         nh=nh.replace(/\\\(([\s\S]*?)\\\)/g,function(m,inner){
-          var fixed=inner.replace(/<br>/g,'').replace(/<em>/g,'_').replace(/<\/em>/g,'_');
+          var fixed=inner.replace(/<br>/g,'').replace(/<em>/g,'_').replace(/<\/em>/g,'');
           return fixed!==inner?'\\('+fixed+'\\)':m;
         });
       }
@@ -226,22 +257,43 @@
   }
 
   function restoreInlineMath(html,cmdRe){
+    var hasMathContext=cmdRe.test(html);
     var parens=[];
     var inTag=false;
+    var inLatexInline=false;
+    var inLatexDisplay=false;
+    var inDollarInline=false;
+    var inDollarDisplay=false;
     for(var i=0;i<html.length;i++){
       var c=html[i];
       if(c==='<')inTag=true;
-      else if(c==='>')inTag=false;
-      else if(!inTag){
-        // 问题24-round3: 跳过 \( 和 \) — 已有LaTeX分隔符不应被二次包装
-        // 使用奇偶反斜杠计数：奇数个连续\前的(或)是LaTeX分隔符，偶数个则不是
-        var bsCount=0;
-        for(var j=i-1;j>=0&&html[j]==='\\';j--)bsCount++;
-        if(c==='('&&bsCount%2===1)continue;
-        if(c===')'&&bsCount%2===1)continue;
-        if(c==='(')parens.push({t:1,p:i});
-        else if(c===')')parens.push({t:0,p:i});
+      else if(c==='>'){
+        inTag=false;
+        continue;
       }
+      if(inTag)continue;
+      if(c==='\\'&&i+1<html.length){
+        var nc=html[i+1];
+        if(nc==='('&&!inLatexDisplay&&!inLatexInline&&!inDollarInline&&!inDollarDisplay){inLatexInline=true;i++;continue;}
+        if(nc===')'&&inLatexInline){inLatexInline=false;i++;continue;}
+        if(nc==='['&&!inLatexInline&&!inLatexDisplay&&!inDollarInline&&!inDollarDisplay){inLatexDisplay=true;i++;continue;}
+        if(nc===']'&&inLatexDisplay){inLatexDisplay=false;i++;continue;}
+      }
+      if(c==='$'&&!inDollarInline&&!inDollarDisplay&&!inLatexInline&&!inLatexDisplay){
+        if(i+1<html.length&&html[i+1]==='$'){
+          inDollarDisplay=!inDollarDisplay;i++;
+        }else{
+          inDollarInline=!inDollarInline;
+        }
+        continue;
+      }
+      if(inLatexInline||inLatexDisplay||inDollarInline||inDollarDisplay)continue;
+      var bsCount=0;
+      for(var j=i-1;j>=0&&html[j]==='\\';j--)bsCount++;
+      if(c==='('&&bsCount%2===1)continue;
+      if(c===')'&&bsCount%2===1)continue;
+      if(c==='(')parens.push({t:1,p:i});
+      else if(c===')')parens.push({t:0,p:i});
     }
     var pairs=[];
     var stack=[];
@@ -253,10 +305,13 @@
       }
     }
     var todo=[];
+    var mathVarRe=/^[A-Z]\^{-1}$|^[A-Z]\^{-T}$|^[A-Z]\^{[0-9]}$|^[A-Z][Tn]$|^[A-Za-z]_\d$/;
     for(var k=0;k<pairs.length;k++){
       var pr=pairs[k];
       var content=html.substring(pr.o+1,pr.c);
-      if(!cmdRe.test(content))continue;
+      var strippedContent=content.replace(/<[^>]+>/g,'').trim();
+      var isMathVar=mathVarRe.test(strippedContent)||(hasMathContext&&/^[A-ZnIk]$/.test(strippedContent));
+      if(!cmdRe.test(content)&&!isMathVar)continue;
       var before=html.substring(Math.max(0,pr.o-5),pr.o);
       if(/\\left\s*$/.test(before))continue;
       var after=html.substring(pr.c+1,Math.min(html.length,pr.c+7));
@@ -280,6 +335,91 @@
       r=r.substring(0,rp.o)+'\\('+r.substring(rp.o+1,rp.c)+'\\)'+r.substring(rp.c+1);
     }
     return r;
+  }
+
+  // 问题25/26-round6: 从chatMessages中提取\(...\)内容，恢复被Markdown吃掉的\(\)分隔符
+  // restoreInlineMath无法识别单字母数学变量如(I), (A), (B)，需要源码辅助
+  function fixInlineMathDelimiters(chatGroup){
+    var app=document.querySelector('openclaw-app');
+    if(!app||!app.chatMessages)return;
+    var els=chatGroup.querySelectorAll('p,td,li,th');
+    if(els.length===0)return;
+    var allMdInline=null;
+    function getAllMdInline(){
+      if(allMdInline)return allMdInline;
+      allMdInline=[];
+      var msgs=app.chatMessages;
+      for(var m=0;m<msgs.length;m++){
+        var msg=msgs[m];
+        if(msg.role!=='assistant'||!Array.isArray(msg.content))continue;
+        for(var c=0;c<msg.content.length;c++){
+          if(msg.content[c].type!=='text')continue;
+          var txt=msg.content[c].text;
+          var re=/\\\(([\s\S]*?)\\\)/g;
+          var mt;
+          while((mt=re.exec(txt))!==null){
+            var body=mt[1].trim();
+            var plain=body.replace(/\\[a-zA-Z]+/g,'').replace(/[\^_{}]/g,'').replace(/\s+/g,' ').trim();
+            allMdInline.push({body:body,plain:plain});
+          }
+        }
+      }
+      return allMdInline;
+    }
+    // 问题29: 检查 ( 是否位于安全上下文——不应在 \cmd( 模式中（如 \det(A)）
+    function isSafeParenCtx(html,idx){
+      if(idx<=0)return true;
+      var prev=html[idx-1];
+      if(prev==='\\')return false;
+      if(/[a-zA-Z]/.test(prev)){
+        var k=idx-1;
+        while(k>=0&&/[a-zA-Z]/.test(html[k]))k--;
+        if(k>=0&&html[k]=='\\')return false;
+      }
+      return true;
+    }
+    var mdInline=getAllMdInline();
+    if(mdInline.length===0)return;
+    for(var i=0;i<els.length;i++){
+      var el=els[i];
+      var h=el.innerHTML;
+      if(h.indexOf('\\(')!==-1)continue;
+      for(var j=0;j<mdInline.length;j++){
+        var mi=mdInline[j];
+        var bare='( '+mi.body+' )';
+        var bareNoSpace='('+mi.body+')';
+        if(h.indexOf(bare)!==-1){
+          var bIdx=h.indexOf(bare);
+          if(isSafeParenCtx(h,bIdx)){
+            h=h.replace(bare,'\\( '+mi.body+' \\)');
+            break;
+          }
+        }
+        if(h.indexOf(bareNoSpace)!==-1){
+          var bnIdx=h.indexOf(bareNoSpace);
+          if(isSafeParenCtx(h,bnIdx)){
+            h=h.replace(bareNoSpace,'\\('+mi.body+'\\)');
+            break;
+          }
+        }
+        var plainBare='( '+mi.plain+' )';
+        var plainBareNoSpace='('+mi.plain+')';
+        var hPlain=h.replace(/<[^>]+>/g,'');
+        if(hPlain.indexOf(plainBare)!==-1||hPlain.indexOf(plainBareNoSpace)!==-1){
+          var tContent=el.textContent.trim();
+          var searchPlain=mi.plain.replace(/\s+/g,' ').trim();
+          if(tContent.indexOf(searchPlain)!==-1){
+            var re=new RegExp('\\(\\s*'+searchPlain.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\s+/g,'\\s+')+'\\s*\\)');
+            var mIdx=h.search(re);
+            if(mIdx!==-1&&isSafeParenCtx(h,mIdx)){
+              h=h.replace(re,'\\( '+mi.body+' \\)');
+              break;
+            }
+          }
+        }
+      }
+      if(h!==el.innerHTML)el.innerHTML=h;
+    }
   }
 
   // Fix Markdown table | truncating LaTeX absolute value symbols — 问题24
@@ -439,6 +579,7 @@
       e.setAttribute(RD,'true');
       if(e.textContent.indexOf('$')===-1&&e.textContent.indexOf('\\')===-1&&e.textContent.indexOf('[')===-1)continue;
       fixTablePipeTruncation(e);
+      fixInlineMathDelimiters(e);
       restoreDelimiters(e);
       try{renderMathInElement(e,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:cfg.throwOnError,strict:false,preProcess:function(t){
         // KaTeX 不支持 multline 环境，替换为 gather*（视觉相似，都居中对齐）
@@ -490,7 +631,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.16.9';
+    var CURRENT_VERSION='2.18.1';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -523,7 +664,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.16.9</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.18.1</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -598,6 +739,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.16.9');
+  log('2.18.1');
   start();
 })();
