@@ -55,10 +55,12 @@
 
 ```
 OpenClaw AI 回复（Markdown 含 LaTeX）
-  ↓ Markdown 渲染器（吃掉反斜杠、插入 <br>）
+  ↓ Markdown 渲染器（吃掉反斜杠、插入 <br>、表格 | 截断公式）
 DOM 中的聊天消息
-  ↓ restoreDelimiters() — 恢复被 Markdown 破坏的 \[ 和 \( 分隔符
+  ↓ fixTablePipeTruncation() — 从原始 Markdown 修复表格中被 | 截断的 cell
+  ↓ restoreDelimiters() — 恢复被 Markdown 破坏的 \[、\(、$$ 分隔符
   ↓ restoreInlineMath() — 平衡括号算法恢复 (...) 为 \(...\)
+  ↓ fixInlineMathDelimiters() — 从原始 Markdown 辅助恢复单字母数学变量
   ↓ renderMathInElement() — KaTeX 自动渲染
   ↓ isolateKatex() — Shadow DOM 迁移（样式完全隔离）
 最终渲染结果
@@ -68,13 +70,22 @@ DOM 中的聊天消息
 
 ## 开发历史
 
-- **v2.15.3** — 最新稳定版
+- **v2.18.2** — 修复纯算术 display math 不渲染（`hasMathContent` 对 `2x-y+4z=0` 返回 false）
+- **v2.18.1** — 修复 `fixInlineMathDelimiters` 误匹配 `\det(A)` 中的括号；扩展 `MATH_RE` + `hasMathContent()` 辅助函数
+- **v2.17.1** — 修复 `[<br>...<br>]` 在 `<p>` 中间无法被 display math 分支恢复
+- **v2.17.0** — 修复 `restoreInlineMath` 对 `\(...\)` 包裹内容做二次包装；新增 `fixInlineMathDelimiters`、`\;` 恢复
+- **v2.16.9** — 修复表格 `<th>` 中 LaTeX 公式不渲染
+- **v2.16.6** — 新增 `fixTablePipeTruncation` — 从原始 Markdown 修复表格 `|` 截断
+- **v2.16.1** — 修复前缀文本 + display math 不渲染
+- **v2.16.0** — 补全 `LATEX_CMD` 缺失的希腊字母命令
+- **v2.16.0-m** — 新增移动端特供版（`@grant none` + `localStorage`）
+- **v2.15.3** — 补全 `LATEX_CMD` 缺失的 `\cfrac` 命令
 - **v2.15.0** — 修复 Shadow DOM CSS 选择器转换遗漏导致的分数布局崩溃
 - **v2.14.0** — 修复 `_{}` 被 Markdown 转为 `<em>` 导致化学式不渲染
 - **v2.13.0** — 新增配置面板（URL 管理、渲染选项）
 - **v2.12.0** — 修复 `multline` 不支持、`\ce` 识别
 - **v2.11.0** — 修复 `$$...$$` 分隔符未被恢复
-- 更多版本见 Git 历史
+- 更多版本见 [Releases](https://github.com/tered12114-bot/openclaw-latex-renderer/releases)
 
 ## License
 
