@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 |------|------|
-| 桌面版脚本 | `openclaw-latex.user.js`（v2.17.1） |
-| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.17.1-m） |
+| 桌面版脚本 | `openclaw-latex.user.js`（v2.18.2） |
+| 移动版脚本 | `openclaw-latex-mobile.user.js`（v2.18.2-m） |
 | 历史版本 | `openclaw-latex-v2.12.0.user.js`（最后已知可用的移动版） |
 | 运行环境 | ScriptCat / Tampermonkey（桌面）；ScriptCat + Edge Android（移动） |
 | 目标页面 | `http://127.0.0.1:18789/*`、`http://localhost:18789/*`、`https://*.ts.net/*`（可通过配置面板扩展） |
@@ -479,6 +479,26 @@
   3. 替换所有 7 处 `LATEX_CMD.test()` 为 `hasMathContent()`
 - **验证**：`AB = BA = I_n` display math 正常渲染 ✓
 
+### 问题 31：纯算术 display math 不恢复（v2.18.2）⭐ 显示问题31
+- **现象**：`\[2(x-1) + (-1)(y-2) + 4(z-3) = 0\]` 等纯算术公式显示为原始文本 `[2(x-1) + ...]`，不被 KaTeX 渲染
+- **根因**：`hasMathContent()` 要求内容包含 `\cmd`、`^`、`_` 等数学模式才返回 true。纯算术表达式如 `2x - y + 4z - 12 = 0` 无任何数学模式，`hasMathContent()` 返回 false，`restoreDelimiters` 跳过恢复
+  - 影响所有 6 个 display math 恢复分支（`[...]` 首尾、`]` 尾部、`$$...$$`、截断 `[` + li、截断 `$$` + li、问题28 中间模式）
+- **修复**（v2.18.2）：对 display math 恢复分支，用 `<br>` 存在性替代 `hasMathContent()` 验证
+  - **核心洞察**：`<br>` 在 `[...]` 内部只可能由 Markdown 破坏 `\[...\]` 产生。普通文本 `[reference]` 不会有 `<br>`
+  - 分支1-5：条件改为 `inner.indexOf('<br>')!==-1||hasMathContent(inner)` — 含 `<br>` 时直接恢复，不含时保留 `hasMathContent()` 检查（防止 `[reference]` 误恢复）
+  - 问题28分支：`[<br>...<br>]` 模式本身就只可能由 Markdown 破坏产生，移除 `hasMathContent()` 检查，直接恢复
+- **验证**：
+  - Bug31: 纯算术 `2(x-1) + (-1)(y-2) + 4(z-3) = 0` display math 正常渲染 ✓
+  - 回归: 含 `\cmd` 的 display math 正常 ✓
+  - 回归: `[reference]` 非数学内容未误恢复 ✓
+  - 回归: `[1]` 脚注未误恢复 ✓
+  - 回归: `$$` display math 正常 ✓
+  - 回归: 12/12 测试全部通过 ✓
+- **教训**：
+  - `hasMathContent()` 是"内容验证"守卫，但 display math 的锚点模式本身已足够独特（`[<br>...<br>]`），不需要内容验证
+  - `<br>` 在分隔符内部是 Markdown 破坏的确定性证据，比 `hasMathContent()` 更可靠
+  - 移除守卫条件时要分析误匹配风险：`[reference]`（无 `<br>`）不会被误恢复，`[<br>...<br>]`（有 `<br>`）一定是 display math
+
 ### 失败的尝试（已排除）
 - ❌ `mathml.remove()` → 矩阵退化为单行
 - ❌ `mathml.innerHTML = ''` → 矩阵渲染失效
@@ -527,8 +547,8 @@ DOM 中的聊天消息
 
 | 文件 | 说明 |
 |------|------|
-| `openclaw-latex.user.js` | 桌面版用户脚本（v2.18.1） |
-| `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.16.8-m，@grant none + localStorage） |
+| `openclaw-latex.user.js` | 桌面版用户脚本（v2.18.2） |
+| `openclaw-latex-mobile.user.js` | 移动版用户脚本（v2.18.2-m，@grant none + localStorage） |
 | `openclaw-latex-v2.12.0.user.js` | 历史版本（最后已知可用的移动版，参考用） |
 | `HANDOFF.md` | 本文档 |
 | `AGENTS.md` | 开发经验手册 |

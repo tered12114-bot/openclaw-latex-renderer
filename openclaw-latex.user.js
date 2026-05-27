@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenClaw LaTeX 渲染器
 // @namespace    https://github.com/openclaw-latex
-// @version      2.18.1
+// @version      2.18.2
 // @description  OpenClaw LaTeX 渲染（auto-render + 后处理 Shadow DOM 迁移）
 // @author       筱天
 // @match        http://127.0.0.1:18789/*
@@ -139,7 +139,9 @@
       if(trimmedNh.indexOf('[')===0&&trimmedNh.endsWith(']')){
         var inner=trimmedNh.substring(1,trimmedNh.length-1);
         inner=inner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-        if(hasMathContent(inner)){
+        // 问题31修复：inner 含 <br> 说明是 Markdown 破坏的 \[...\]，直接恢复
+        // 不含 <br> 时保留 hasMathContent 检查（防止 [reference] 误恢复）
+        if(inner.indexOf('<br>')!==-1||hasMathContent(inner)){
           var cleanedInner=inner.replace(/<br>/g,'');
           nh='\\['+cleanedInner+'\\]';
         }
@@ -150,7 +152,7 @@
         if(lb!==-1){
           var preInner=trimmedNh.substring(lb+1,trimmedNh.length-1);
           preInner=preInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-          if(hasMathContent(preInner)){
+          if(preInner.indexOf('<br>')!==-1||hasMathContent(preInner)){
             var preCleaned=preInner.replace(/<br>/g,'');
             nh=trimmedNh.substring(0,lb)+'\\['+preCleaned+'\\]';
           }
@@ -160,7 +162,8 @@
       else if(trimmed.indexOf('$$')===0&&trimmed.endsWith('$$')){
         var dollarInner=trimmed.substring(2,trimmed.length-2);
         dollarInner=dollarInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-        if(hasMathContent(dollarInner)){
+        // 问题31修复：含 <br> 时直接恢复（Markdown 破坏），不含时保留 hasMathContent 检查
+        if(dollarInner.indexOf('<br>')!==-1||hasMathContent(dollarInner)){
           nh='$$'+dollarInner.replace(/<br>/g,'')+'$$';
         }
       }
@@ -185,10 +188,9 @@
             allInner=allInner.substring(0,allInner.length-1);
             // Decode HTML entities: &amp; → &, &lt; → <, &gt; → >
             allInner=allInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-            if(hasMathContent(allInner)){
-              // Replace p with the merged display math
+            // 问题31修复：截断 display math 由 p+li 合并，必然含 <br>，直接恢复
+            if(allInner.indexOf('<br>')!==-1||hasMathContent(allInner)){
               nh='\\['+allInner.replace(/<br>/g,'')+'\\]';
-              // Remove the ul since its content is now in the p
               next.remove();
             }
           }
@@ -210,7 +212,8 @@
             }
             dollarAllInner=dollarAllInner.substring(0,dollarAllInner.length-2);
             dollarAllInner=dollarAllInner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-            if(hasMathContent(dollarAllInner)){
+            // 问题31修复：截断 $$ display math 由 p+li 合并，必然含 <br>，直接恢复
+            if(dollarAllInner.indexOf('<br>')!==-1||hasMathContent(dollarAllInner)){
               nh='$$'+dollarAllInner.replace(/<br>/g,'')+'$$';
               dollarNext.remove();
             }
@@ -222,10 +225,8 @@
       if(nh.indexOf('[<br>')!==-1&&nh.indexOf('\\[')===-1){
         nh=nh.replace(/\[<br>\n([\s\S]*?)<br>\n\]/g,function(match,inner){
           var decoded=inner.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-          if(hasMathContent(decoded)){
-            return '\\['+decoded.replace(/<br>/g,'')+'\\]';
-          }
-          return match;
+          // 问题31修复：[<br>...<br>] 模式只由 Markdown 破坏 \[...\] 产生，直接恢复
+          return '\\['+decoded.replace(/<br>/g,'')+'\\]';
         });
       }
       // 问题25/26-round6: display math恢复后，清除\[...\]内部被误插入的\(...\)
@@ -631,7 +632,7 @@
   }
   var ConfigManager=(function(){
     var KEY='openclaw-latex-config';
-    var CURRENT_VERSION='2.18.1';
+    var CURRENT_VERSION='2.18.2';
     function defaults(){return{version:CURRENT_VERSION,urls:['http://127.0.0.1:18789/*','http://localhost:18789/*'],throwOnError:false,shadowDOM:true,displayMode:true}}
     function load(){
       try{
@@ -664,7 +665,7 @@
           '<div class="section"><div class="section-title">已配置的网址</div><div class="url-list" id="ol-url-list"></div><button class="add-btn" id="ol-add-btn">+ 添加网址</button><div id="ol-add-wrap"></div></div>'+
           '<div class="section"><div class="section-title">渲染选项</div><div class="toggle-row"><label>启用 Shadow DOM 隔离</label><input type="checkbox" id="ol-shadow"></div><div class="toggle-row"><label>严格错误模式（throwOnError）</label><input type="checkbox" id="ol-error"></div><div class="toggle-row"><label>启用 displayMode（块级公式）</label><input type="checkbox" id="ol-display"></div></div>'+
         '</div>'+
-        '<div class="footer"><span class="version">版本 v2.18.1</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
+        '<div class="footer"><span class="version">版本 v2.18.2</span><div class="actions"><button class="btn" id="ol-reset">重置为默认</button><button class="btn btn-primary" id="ol-save">保存</button></div></div>'+
       '</div>';
       var host=document.createElement('div');
       try{
@@ -739,6 +740,6 @@
     }
     return{show:show,hide:hide}
   })();
-  log('2.18.1');
+  log('2.18.2');
   start();
 })();
